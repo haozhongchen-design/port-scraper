@@ -7,7 +7,6 @@ import io
 
 NYC = pytz.timezone('America/New_York')
 MASTER_FILE = "callao_master_data.csv"
-# We use the main UI link, NOT the API link
 TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?terminal=PECLL"
 
 def run_sentinel():
@@ -16,28 +15,33 @@ def run_sentinel():
     print(f"--- M5 STEALTH SCRAPE: {ts} ---")
 
     with sync_playwright() as p:
-        # Launch a real, headless browser
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        # We add a specific viewport size to ensure the table isn't hidden by "mobile" view
+        page = browser.new_page(viewport={'width': 1920, 'height': 1080})
 
         try:
             print("Visiting APM Terminals...")
-            page.goto(TARGET_URL, wait_until="networkidle", timeout=60000)
+            # CHANGE: Wait for 'domcontentloaded' instead of 'networkidle'
+            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
 
-            # Wait specifically for the table to render on the screen
-            page.wait_for_selector("table", timeout=30000)
+            print("Waiting for vessel table to appear...")
+            # We wait for the specific 'table' tag or the data container
+            page.wait_for_selector("table", timeout=45000)
             
-            # Extract the table into a Pandas DataFrame
+            # Small pause to let the JavaScript finish rendering the rows
+            page.wait_for_timeout(2000)
+
+            # Extract the table
             html_content = page.content()
             tables = pd.read_html(io.StringIO(html_content))
             
             if not tables:
-                print("No tables detected on page.")
+                print("No tables detected in the HTML.")
                 return
 
             df = tables[0]
             
-            # Isolate Muelle 5 (M5)
+            # Filter for Muelle 5
             berth_col = next((c for c in df.columns if 'Berth' in str(c)), None)
             
             if berth_col:
@@ -49,9 +53,9 @@ def run_sentinel():
                     m5.to_csv(MASTER_FILE, mode='a', index=False, header=not file_exists)
                     print(f"SUCCESS: {len(m5)} industrial vessels captured.")
                 else:
-                    print("M5 is clear.")
+                    print("M5 is clear. No industrial activity detected.")
             else:
-                print(f"Berth column not found. Available: {list(df.columns)}")
+                print(f"Berth column not found. Columns: {list(df.columns)}")
 
         except Exception as e:
             print(f"Scrape Failed: {str(e)}")
