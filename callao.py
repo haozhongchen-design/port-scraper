@@ -7,6 +7,7 @@ import io
 
 NYC = pytz.timezone('America/New_York')
 MASTER_FILE = "callao_master_data.csv"
+# We use the main UI link, NOT the API link
 TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?terminal=PECLL"
 
 def run_sentinel():
@@ -15,53 +16,45 @@ def run_sentinel():
     print(f"--- M5 STEALTH SCRAPE: {ts} ---")
 
     with sync_playwright() as p:
-        # 1. Launch Stealth Browser
+        # Launch a real, headless browser
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'
-        )
-        page = context.new_page()
+        page = browser.new_page()
 
         try:
-            # 2. Navigate to page
-            print("Navigating to APM Terminals...")
-            page.goto(TARGET_URL, wait_until="networkidle", timeout=90000)
+            print("Visiting APM Terminals...")
+            page.goto(TARGET_URL, wait_until="networkidle", timeout=60000)
 
-            # 3. Wait for the vessel table to render (adjust selector if needed)
-            # We target the common 'table' tag or a specific data container
+            # Wait specifically for the table to render on the screen
             page.wait_for_selector("table", timeout=30000)
             
-            # 4. Extract HTML content of the table
+            # Extract the table into a Pandas DataFrame
             html_content = page.content()
             tables = pd.read_html(io.StringIO(html_content))
             
             if not tables:
-                print("No tables found in browser DOM.")
+                print("No tables detected on page.")
                 return
 
             df = tables[0]
             
-            # 5. Filter for Muelle 5 (Industrial Concentration)
-            # We look for 'Berth' in columns and 'M5' in values
+            # Isolate Muelle 5 (M5)
             berth_col = next((c for c in df.columns if 'Berth' in str(c)), None)
             
             if berth_col:
                 m5 = df[df[berth_col].astype(str).str.contains('M5', case=False, na=False)].copy()
                 
                 if not m5.empty:
-                    m5['Scrape_Timestamp_EST'] = ts
+                    m5['Timestamp_EST'] = ts
                     file_exists = os.path.isfile(MASTER_FILE)
                     m5.to_csv(MASTER_FILE, mode='a', index=False, header=not file_exists)
                     print(f"SUCCESS: {len(m5)} industrial vessels captured.")
                 else:
-                    print("M5 is currently clear.")
+                    print("M5 is clear.")
             else:
                 print(f"Berth column not found. Available: {list(df.columns)}")
 
         except Exception as e:
-            print(f"Stealth Scrape Failed: {str(e)}")
-            # Optional: Save a screenshot to debug why it failed
-            # page.screenshot(path="debug_error.png")
+            print(f"Scrape Failed: {str(e)}")
             
         finally:
             browser.close()
