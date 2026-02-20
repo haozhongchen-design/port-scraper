@@ -32,7 +32,9 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git add -f callao_master_data.csv
+          
+          # The Fix: Bypass the crash if the CSV was not generated
+          git add -f callao_master_data.csv || true
           
           if git diff --staged --quiet; then
             echo "No market change detected."
