@@ -23,7 +23,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install pandas pytz requests lxml
+        run: pip install pandas pytz requests lxml html5lib
 
       - name: Run Callao Scraper
         run: python callao.py
