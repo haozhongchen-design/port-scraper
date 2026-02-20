@@ -39,7 +39,8 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git add -f data/*.csv 
+          # The -f and the '|| true' ensure the script doesn't crash if the folder is empty
+          git add -f data/*.csv || true
           
           if git diff --staged --quiet; then
             echo "No new vessels detected across any ports."
