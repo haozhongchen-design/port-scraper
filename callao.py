@@ -1,4 +1,5 @@
 import pandas as pd
+import requests
 import os
 from datetime import datetime
 import pytz
@@ -7,7 +8,9 @@ import pytz
 NYC = pytz.timezone('America/New_York')
 DATA_DIR = "."
 MASTER_FILE = os.path.join(DATA_DIR, "callao_master_data.csv")
-DAILY_EXPORT = "Vessel-Schedule.csv" 
+
+# Replace this with the exact URL of the webpage displaying the schedule
+TARGET_URL = "PASTE_THE_WEBSITE_URL_HERE" 
 
 # DISPLACEMENT ESTIMATION VARIABLES
 TONS_PER_HOUR = 1200.0  # Estimated loading rate for mineral concentrates
@@ -21,13 +24,13 @@ def calculate_displacement(row, now):
     except Exception:
         return 0.0, 0.0 
         
-    if pd.notna(row['Departure time']) and "DEPARTED" in str(row['Status']).upper():
+    if pd.notna(row.get('Departure time')) and "DEPARTED" in str(row.get('Status', '')).upper():
         try:
             departed = datetime.strptime(str(row['Departure time']).strip(), date_format)
             stay_seconds = (departed - arrived).total_seconds()
         except Exception:
             stay_seconds = 0
-    elif "AT BERTH" in str(row['Status']).upper():
+    elif "AT BERTH" in str(row.get('Status', '')).upper():
         stay_seconds = (now - arrived).total_seconds()
     else:
         stay_seconds = 0
@@ -43,11 +46,30 @@ def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     timestamp = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
 
+    print(f"--- M5 SENTINEL GRIND: {timestamp} ---")
+
     try:
-        # Load the raw maritime manifest
-        df = pd.read_csv(DAILY_EXPORT)
+        # 1. Fetch the raw HTML of the webpage directly
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        r = requests.get(TARGET_URL, headers=headers, timeout=15)
+        
+        # 2. Extract all HTML tables from the page into DataFrames
+        tables = pd.read_html(r.text)
+        
+        if not tables:
+            print(f"[{timestamp}] CRITICAL: No HTML tables detected on the target page.")
+            return
+            
+        # 3. Target the primary table on the page (usually index 0)
+        df = tables[0]
         
         # Isolate M5 Industrial Berths Only
+        if 'Berth' not in df.columns:
+            print(f"[{timestamp}] ALERT: 'Berth' column missing. Target table layout may have changed.")
+            return
+            
         m5_vessels = df[df['Berth'].isin(['M5A', 'M5D'])].copy()
         
         if m5_vessels.empty:
@@ -68,9 +90,6 @@ def run_sentinel():
         
         print(f"[{timestamp}] Callao Success: {len(m5_vessels)} mineral vessels processed.")
 
-    except FileNotFoundError:
-        # Safety catch if the user hasn't uploaded the CSV
-        print(f"[{timestamp}] CRITICAL: {DAILY_EXPORT} not found. Awaiting raw data manifest.")
     except Exception as e:
         print(f"[{timestamp}] System Error: {str(e)}")
 
