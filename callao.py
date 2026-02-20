@@ -10,7 +10,7 @@ DATA_DIR = "."
 MASTER_FILE = os.path.join(DATA_DIR, "callao_master_data.csv")
 
 # Replace this with the exact URL of the webpage displaying the schedule
-TARGET_URL = "PASTE_THE_WEBSITE_URL_HERE" 
+TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?terminal=PECLL" 
 
 # DISPLACEMENT ESTIMATION VARIABLES
 TONS_PER_HOUR = 1200.0  # Estimated loading rate for mineral concentrates
