@@ -1,18 +1,15 @@
-name: Global Port Aggregator
+name: Callao Port Scraper
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-  schedule:
-    - cron: '0 12 * * *'
+  repository_dispatch:
+    types: [external_trigger]
 
 permissions:
   contents: write
 
 jobs:
-  scrape_ports:
+  grind:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -26,25 +23,21 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install requests beautifulsoup4 pytz
+        # Added pandas to handle the mathematical dataframes
+        run: pip install pandas pytz
 
-      # Create a data folder to keep the repository clean
-      - name: Create Data Directory
-        run: mkdir -p data
-
-      - name: Run Processor
-        run: python port_scraper.py
+      - name: Run Callao Scraper
+        run: python callao.py
 
       - name: Commit and Force Push
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          # The -f and the '|| true' ensure the script doesn't crash if the folder is empty
-          git add -f data/*.csv || true
+          git add -f callao_master_data.csv
           
           if git diff --staged --quiet; then
-            echo "No new vessels detected across any ports."
+            echo "No market change detected."
           else
-            git commit -m "Processor Update: $(date +'%Y-%m-%d')"
+            git commit -m "M5 Displacement Update: $(date +'%Y-%m-%d %H:%M:%S')"
             git push origin HEAD:main
           fi
