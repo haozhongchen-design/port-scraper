@@ -1,74 +1,70 @@
 import pandas as pd
-import requests
+from playwright.sync_api import sync_playwright
 import os
 from datetime import datetime
 import pytz
+import io
 
-# CONFIG: PECLL (Callao) Node
 NYC = pytz.timezone('America/New_York')
 MASTER_FILE = "callao_master_data.csv"
-API_URL = "https://api.apmterminals.com/tt-vessel-schedules?terminal=PECLL"
+TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?terminal=PECLL"
 
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 DIRECT API GHOST INJECTION: {ts} ---")
+    print(f"--- M5 STEALTH SCRAPE: {ts} ---")
 
-    # These headers are the "Keys" to the Access Denied lock
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://www.apmterminals.com',
-        'Referer': 'https://www.apmterminals.com/',
-        'Connection': 'keep-alive'
-    }
+    with sync_playwright() as p:
+        # 1. Launch Stealth Browser
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'
+        )
+        page = context.new_page()
 
-    try:
-        # We use a session to handle potential cookie requirements automatically
-        session = requests.Session()
-        r = session.get(API_URL, headers=headers, timeout=15)
-        
-        if r.status_code != 200:
-            print(f"FAILED: Status {r.status_code}")
-            print(f"Server Message: {r.text[:200]}") # Diagnostics
-            return
+        try:
+            # 2. Navigate to page
+            print("Navigating to APM Terminals...")
+            page.goto(TARGET_URL, wait_until="networkidle", timeout=90000)
 
-        data = r.json()
-        
-        # API check: If it's a list, we go. If it's a dict, we hunt for the key.
-        items = data if isinstance(data, list) else data.get('vessels', [])
-        
-        if not items:
-            print("API Success, but no vessel data in payload.")
-            return
+            # 3. Wait for the vessel table to render (adjust selector if needed)
+            # We target the common 'table' tag or a specific data container
+            page.wait_for_selector("table", timeout=30000)
+            
+            # 4. Extract HTML content of the table
+            html_content = page.content()
+            tables = pd.read_html(io.StringIO(html_content))
+            
+            if not tables:
+                print("No tables found in browser DOM.")
+                return
 
-        df = pd.DataFrame(items)
+            df = tables[0]
+            
+            # 5. Filter for Muelle 5 (Industrial Concentration)
+            # We look for 'Berth' in columns and 'M5' in values
+            berth_col = next((c for c in df.columns if 'Berth' in str(c)), None)
+            
+            if berth_col:
+                m5 = df[df[berth_col].astype(str).str.contains('M5', case=False, na=False)].copy()
+                
+                if not m5.empty:
+                    m5['Scrape_Timestamp_EST'] = ts
+                    file_exists = os.path.isfile(MASTER_FILE)
+                    m5.to_csv(MASTER_FILE, mode='a', index=False, header=not file_exists)
+                    print(f"SUCCESS: {len(m5)} industrial vessels captured.")
+                else:
+                    print("M5 is currently clear.")
+            else:
+                print(f"Berth column not found. Available: {list(df.columns)}")
 
-        # Hunt for the 'berth' column (it's likely 'berth' or 'berthCode' in JSON)
-        berth_col = next((c for c in df.columns if 'berth' in c.lower()), None)
-        
-        if not berth_col:
-            print(f"Structure Error. Keys: {list(df.columns)}")
-            return
-
-        # Filter for Muelle 5 (A and D)
-        m5 = df[df[berth_col].astype(str).str.contains('M5', case=False, na=False)].copy()
-
-        if m5.empty:
-            print("M5 is currently clear. No industrial activity detected.")
-            # We still save an empty heartbeat to show the scraper is alive
-            return
-
-        # Add metadata and save
-        m5['Timestamp_EST'] = ts
-        file_exists = os.path.isfile(MASTER_FILE)
-        m5.to_csv(MASTER_FILE, mode='a', index=False, header=not file_exists)
-        
-        print(f"ALPHA SECURED: {len(m5)} vessel(s) logged at M5.")
-
-    except Exception as e:
-        print(f"CRITICAL SYSTEM ERROR: {str(e)}")
+        except Exception as e:
+            print(f"Stealth Scrape Failed: {str(e)}")
+            # Optional: Save a screenshot to debug why it failed
+            # page.screenshot(path="debug_error.png")
+            
+        finally:
+            browser.close()
 
 if __name__ == "__main__":
     run_sentinel()
