@@ -12,7 +12,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 DIAGNOSTIC SCRAPE: {ts} ---")
+    print(f"--- M5 INTERACTIVE SCRAPE: {ts} ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -25,17 +25,43 @@ def run_sentinel():
         try:
             print("Force-loading APM Terminals...")
             try:
-                page.goto(TARGET_URL, wait_until="commit", timeout=30000)
+                # We use domcontentloaded so we can interact with the cookie banner immediately
+                page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=45000)
             except Exception as load_err:
                 print(f"Initial load timeout bypassed: {load_err}")
 
+            # 1. THE COOKIE CRUSHER
+            try:
+                print("Hunting for Cookie Banner...")
+                # We look for the exact text from your diagnostic dump
+                cookie_button = page.get_by_text("Allow all", exact=True)
+                cookie_button.click(timeout=10000)
+                print("Cookie wall destroyed. Authorizing data payload...")
+                
+                # Give the site 3 seconds to process the click and trigger the API
+                page.wait_for_timeout(3000)
+            except Exception as e:
+                print("No cookie banner detected. Proceeding...")
+
+            # 2. THE TABLE HUNT
             print("Hunting for the Vessel Table...")
-            page.wait_for_selector("table", timeout=45000)
+            try:
+                page.wait_for_selector("table", timeout=30000)
+            except:
+                print("Timeout: The site might be using a custom div-grid instead of an HTML table.")
             
+            # Final settle time for JavaScript to render the rows
             page.wait_for_timeout(3000) 
 
             html_content = page.content()
-            tables = pd.read_html(io.StringIO(html_content), flavor='lxml')
+            
+            try:
+                tables = pd.read_html(io.StringIO(html_content), flavor='lxml')
+            except ValueError:
+                print("Pandas Error: No HTML <table> tags exist in the DOM.")
+                print("Fallback Diagnostic: Attempting to pull raw text...")
+                print(page.inner_text("body")[:1000])
+                return
             
             if not tables:
                 print("Table found but empty.")
@@ -43,6 +69,7 @@ def run_sentinel():
 
             df = tables[0]
             
+            # Isolate Muelle 5
             berth_col = next((c for c in df.columns if 'Berth' in str(c)), None)
             
             if berth_col:
@@ -53,19 +80,12 @@ def run_sentinel():
                     m5.to_csv(MASTER_FILE, mode='a', index=False, header=not file_exists)
                     print(f"SUCCESS: {len(m5)} vessels captured at M5.")
                 else:
-                    print("M5 is clear.")
+                    print("M5 is clear. No industrial activity detected.")
             else:
                 print(f"Berth column not found. Available: {list(df.columns)}")
 
         except Exception as e:
             print(f"Scrape Failed: {str(e)}")
-            print("--- VISUAL TEXT DUMP ---")
-            # This will print the first 1000 characters the bot sees on the screen
-            try:
-                visible_text = page.inner_text("body")
-                print(visible_text[:1000])
-            except:
-                print("[Could not extract body text]")
             
         finally:
             browser.close()
