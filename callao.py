@@ -12,7 +12,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 SURGICAL CSV HIJACK: {ts} ---")
+    print(f"--- M5 SEARCH & HIJACK: {ts} ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, downloads_path=".")
@@ -41,13 +41,27 @@ def run_sentinel():
             except Exception:
                 print("No cookie banner detected.")
 
-            # 2. THE SURGICAL LOCATOR
+            # 2. THE SEARCH TRIGGER
+            print("Engaging Search protocol...")
+            try:
+                # Target the standard 'Search' button text
+                search_button = page.locator("button:has-text('Search')").first
+                search_button.wait_for(state="visible", timeout=5000)
+                search_button.click()
+                print("Search triggered. Waiting 8 seconds for the database grid to populate...")
+                
+                # We must give the site's background API time to return the vessels
+                page.wait_for_timeout(8000)
+            except Exception as e:
+                print("Search button not found by standard text. Proceeding to hunt for SVG anyway...")
+
+            # 3. THE SURGICAL LOCATOR
             print("Hunting for the SVG Icon...")
             csv_locator = page.locator("svg[aria-label='file-csv']").first
             
             csv_locator.wait_for(state="visible", timeout=30000)
             
-            # 3. INTERCEPTING THE DOWNLOAD
+            # 4. INTERCEPTING THE DOWNLOAD
             print("Target acquired. Initiating download sequence...")
             with page.expect_download(timeout=45000) as download_info:
                 csv_locator.click(force=True)
@@ -56,7 +70,7 @@ def run_sentinel():
             print(f"Download intercepted: {download.suggested_filename}")
             download.save_as(TEMP_FILE)
 
-            # 4. PROCESSING THE RAW CSV
+            # 5. PROCESSING THE RAW CSV
             print("Parsing official port data...")
             df = pd.read_csv(TEMP_FILE)
             
