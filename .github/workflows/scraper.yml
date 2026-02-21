@@ -23,7 +23,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install Libraries
-        run: pip install playwright playwright-stealth pandas==2.2.3 pytz beautifulsoup4 lxml
+        run: pip install html5lib playwright playwright-stealth pandas==2.2.3 pytz beautifulsoup4 lxml
 
       - name: Install Browser Engine
         # This downloads the actual Chromium browser into the VM
