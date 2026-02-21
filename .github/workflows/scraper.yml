@@ -42,5 +42,7 @@ jobs:
             echo "No change."
           else
             git commit -m "M5 Update: $(date +'%Y-%m-%d %H:%M:%S')"
+            # Sync with the live repository before pushing
+            git pull --rebase origin main
             git push origin HEAD:main
           fi
