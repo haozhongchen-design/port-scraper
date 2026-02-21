@@ -12,7 +12,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 CSV HIJACK V2: {ts} ---")
+    print(f"--- M5 SURGICAL CSV HIJACK: {ts} ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, downloads_path=".")
@@ -26,11 +26,9 @@ def run_sentinel():
         try:
             print("Force-loading APM Terminals...")
             page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
-            
-            # Hard pause to allow external tracking scripts to inject the cookie wall
             page.wait_for_timeout(4000)
 
-            # 1. THE COOKIE CRUSHER (Broadened)
+            # 1. THE COOKIE CRUSHER
             try:
                 print("Hunting for Cookie Banner...")
                 cookie_button = page.locator("button:has-text('Allow all')").first
@@ -43,16 +41,18 @@ def run_sentinel():
             except Exception:
                 print("No cookie banner detected.")
 
-            # 2. THE OMNI-LOCATOR
-            print("Hunting for the CSV button using broad spectrum locator...")
-            # This targets title, alt, aria-label, or raw text containing CSV or Export
-            csv_locator = page.locator("css=[title*='CSV'], [alt*='CSV'], [aria-label*='CSV'], :text-is('CSV'), :has-text('Export as CSV')").first
+            # 2. THE SURGICAL LOCATOR
+            print("Hunting for the SVG Icon...")
+            # We target the exact attribute you found in the inspector
+            csv_locator = page.locator("svg[aria-label='file-csv']").first
             
+            # Wait for the icon to render
             csv_locator.wait_for(state="visible", timeout=30000)
             
             # 3. INTERCEPTING THE DOWNLOAD
             print("Target acquired. Initiating download sequence...")
             with page.expect_download(timeout=45000) as download_info:
+                # We use force=True because sometimes clicking SVGs directly is intercepted by their parent <span>
                 csv_locator.click(force=True)
                 
             download = download_info.value
@@ -82,8 +82,6 @@ def run_sentinel():
 
         except Exception as e:
             print(f"Scrape Failed: {str(e)}")
-            print("Capturing visual intelligence...")
-            # This saves a picture of exactly what blocked the bot
             page.screenshot(path="csv_fail_screenshot.png")
             
         finally:
