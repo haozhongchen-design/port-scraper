@@ -1,46 +1,88 @@
-name: Callao Port Scraper
+import pandas as pd
+from playwright.sync_api import sync_playwright
+import os
+from datetime import datetime
+import pytz
 
-on:
-  workflow_dispatch:
-  repository_dispatch:
-    types: [external_trigger]
+NYC = pytz.timezone('America/New_York')
+MASTER_FILE = "callao_master_data.csv"
+TEMP_FILE = "apm_temp_download.csv"
+TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?terminal=PECLL"
 
-permissions:
-  contents: write
+def run_sentinel():
+    now_nyc = datetime.now(NYC).replace(tzinfo=None)
+    ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
+    print(f"--- M5 SURGICAL CSV HIJACK: {ts} ---")
 
-jobs:
-  grind:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: true 
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, downloads_path=".")
+        context = browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            accept_downloads=True
+        )
+        page = context.new_page()
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+        try:
+            print("Force-loading APM Terminals...")
+            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(4000)
 
-      - name: Install Libraries
-        run: pip install playwright pandas==2.2.3 pytz beautifulsoup4 lxml html5lib
+            # 1. THE COOKIE CRUSHER
+            try:
+                print("Hunting for Cookie Banner...")
+                cookie_button = page.locator("button:has-text('Allow all')").first
+                if cookie_button.is_visible(timeout=5000):
+                    cookie_button.click()
+                    print("Cookie wall destroyed. Authorizing payload...")
+                    page.wait_for_timeout(3000)
+                else:
+                    print("Cookie banner not visible. Proceeding...")
+            except Exception:
+                print("No cookie banner detected.")
 
-      - name: Install Browser Engine
-        run: playwright install chromium --with-deps
+            # 2. THE SURGICAL LOCATOR
+            print("Hunting for the SVG Icon...")
+            csv_locator = page.locator("svg[aria-label='file-csv']").first
+            
+            csv_locator.wait_for(state="visible", timeout=30000)
+            
+            # 3. INTERCEPTING THE DOWNLOAD
+            print("Target acquired. Initiating download sequence...")
+            with page.expect_download(timeout=45000) as download_info:
+                csv_locator.click(force=True)
+                
+            download = download_info.value
+            print(f"Download intercepted: {download.suggested_filename}")
+            download.save_as(TEMP_FILE)
 
-      - name: Run Scraper
-        run: python callao.py
+            # 4. PROCESSING THE RAW CSV
+            print("Parsing official port data...")
+            df = pd.read_csv(TEMP_FILE)
+            
+            if os.path.exists(TEMP_FILE):
+                os.remove(TEMP_FILE)
 
-      - name: Commit and Push
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add -f callao_master_data.csv || true
-          git add -f csv_fail_screenshot.png || true
-          
-          if git diff --staged --quiet; then
-            echo "No change."
-          else
-            git commit -m "M5 Update: $(date +'%Y-%m-%d %H:%M:%S')"
-            git push origin HEAD:main
-          fi
+            berth_col = next((c for c in df.columns if 'Berth' in str(c)), None)
+            
+            if berth_col:
+                m5 = df[df[berth_col].astype(str).str.contains('M5', case=False, na=False)].copy()
+                if not m5.empty:
+                    m5['Timestamp_EST'] = ts
+                    file_exists = os.path.isfile(MASTER_FILE)
+                    m5.to_csv(MASTER_FILE, mode='a', index=False, header=not file_exists)
+                    print(f"SUCCESS: {len(m5)} vessels captured at M5.")
+                else:
+                    print("M5 is clear. No industrial activity detected.")
+            else:
+                print(f"Berth column missing. Columns found: {list(df.columns)}")
+
+        except Exception as e:
+            print(f"Scrape Failed: {str(e)}")
+            page.screenshot(path="csv_fail_screenshot.png")
+            
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    run_sentinel()
