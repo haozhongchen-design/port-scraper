@@ -32,12 +32,20 @@ jobs:
       - name: Run Scraper
         run: python callao.py
 
+      - name: Upload Failure Screenshot
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-screenshot
+          path: csv_fail_screenshot.png
+          retention-days: 3
+
       - name: Commit and Push
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
+          # We only track the data file now, not the image
           git add -f callao_master_data.csv || true
-          git add -f csv_fail_screenshot.png || true
           
           if git diff --staged --quiet; then
             echo "No change."
