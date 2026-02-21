@@ -25,20 +25,19 @@ def run_sentinel():
         try:
             print("Force-loading APM Terminals (ignoring timeouts)...")
             try:
-                # 'commit' means it stops waiting as soon as the server responds. No networkidle trap.
                 page.goto(TARGET_URL, wait_until="commit", timeout=30000)
             except Exception as load_err:
                 print(f"Initial load timeout bypassed: {load_err}")
 
             print("Hunting for the Vessel Table...")
-            # Wait for the table to actually enter the DOM
             page.wait_for_selector("table", timeout=45000)
             
-            # Let the rows populate
             page.wait_for_timeout(3000) 
 
             html_content = page.content()
-            tables = pd.read_html(io.StringIO(html_content))
+            
+            # THE FIX: Force Pandas to use lxml, bypassing the need for html5lib entirely
+            tables = pd.read_html(io.StringIO(html_content), flavor='lxml')
             
             if not tables:
                 print("Table found but empty.")
