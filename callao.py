@@ -1,6 +1,5 @@
 import pandas as pd
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
 import os
 from datetime import datetime
 import pytz
@@ -17,32 +16,27 @@ def run_sentinel():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # Creating a realistic browser context
         context = browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         )
         page = context.new_page()
-        
-        # Apply Stealth to bypass 'Access Denied' firewalls
-        stealth_sync(page)
 
         try:
             print("Force-loading APM Terminals (ignoring timeouts)...")
-            # We use 'commit' which is the fastest possible load state
             try:
+                # 'commit' means it stops waiting as soon as the server responds. No networkidle trap.
                 page.goto(TARGET_URL, wait_until="commit", timeout=30000)
-            except:
-                print("Page load taking long, proceeding to hunt for table anyway...")
+            except Exception as load_err:
+                print(f"Initial load timeout bypassed: {load_err}")
 
-            # We wait for the specific 'table' tag that holds the schedule
             print("Hunting for the Vessel Table...")
+            # Wait for the table to actually enter the DOM
             page.wait_for_selector("table", timeout=45000)
             
-            # Final 2-second settle for JavaScript to fill the rows
-            page.wait_for_timeout(2000)
+            # Let the rows populate
+            page.wait_for_timeout(3000) 
 
-            # Extract the raw HTML
             html_content = page.content()
             tables = pd.read_html(io.StringIO(html_content))
             
@@ -52,7 +46,6 @@ def run_sentinel():
 
             df = tables[0]
             
-            # Isolate Muelle 5
             berth_col = next((c for c in df.columns if 'Berth' in str(c)), None)
             
             if berth_col:
@@ -70,7 +63,6 @@ def run_sentinel():
 
         except Exception as e:
             print(f"Scrape Failed: {str(e)}")
-            # For your eyes only: this creates a screenshot in the repo if it fails
             page.screenshot(path="scrape_error_capture.png")
             
         finally:
