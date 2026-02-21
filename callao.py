@@ -12,7 +12,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 AGGRESSIVE SCRAPE: {ts} ---")
+    print(f"--- M5 DIAGNOSTIC SCRAPE: {ts} ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -23,7 +23,7 @@ def run_sentinel():
         page = context.new_page()
 
         try:
-            print("Force-loading APM Terminals (ignoring timeouts)...")
+            print("Force-loading APM Terminals...")
             try:
                 page.goto(TARGET_URL, wait_until="commit", timeout=30000)
             except Exception as load_err:
@@ -35,8 +35,6 @@ def run_sentinel():
             page.wait_for_timeout(3000) 
 
             html_content = page.content()
-            
-            # THE FIX: Force Pandas to use lxml, bypassing the need for html5lib entirely
             tables = pd.read_html(io.StringIO(html_content), flavor='lxml')
             
             if not tables:
@@ -49,7 +47,6 @@ def run_sentinel():
             
             if berth_col:
                 m5 = df[df[berth_col].astype(str).str.contains('M5', case=False, na=False)].copy()
-                
                 if not m5.empty:
                     m5['Timestamp_EST'] = ts
                     file_exists = os.path.isfile(MASTER_FILE)
@@ -62,7 +59,13 @@ def run_sentinel():
 
         except Exception as e:
             print(f"Scrape Failed: {str(e)}")
-            page.screenshot(path="scrape_error_capture.png")
+            print("--- VISUAL TEXT DUMP ---")
+            # This will print the first 1000 characters the bot sees on the screen
+            try:
+                visible_text = page.inner_text("body")
+                print(visible_text[:1000])
+            except:
+                print("[Could not extract body text]")
             
         finally:
             browser.close()
