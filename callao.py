@@ -12,7 +12,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 SEARCH & HIJACK V3 ---")
+    print(f"--- M5 FULL PENETRATION SEQUENCE ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, downloads_path=".")
@@ -26,27 +26,25 @@ def run_sentinel():
         try:
             print("Force-loading APM Terminals...")
             page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(4000)
 
-            # 1. THE COOKIE CRUSHER
+            # 1. THE COOKIE CRUSHER (Upgraded)
+            print("Hunting for Cookie Banner (Allowing 15s for external script injection)...")
             try:
-                print("Hunting for Cookie Banner...")
-                cookie_button = page.locator("button:has-text('Allow all')").first
-                if cookie_button.is_visible(timeout=5000):
-                    cookie_button.click()
-                    print("Cookie wall destroyed. Authorizing payload...")
-                    page.wait_for_timeout(3000)
-                else:
-                    print("Cookie banner not visible. Proceeding...")
-            except Exception:
-                print("No cookie banner detected.")
+                # Target the exact text, ignoring the button HTML structure
+                cookie_button = page.locator("text='Allow all'").first
+                cookie_button.wait_for(state="visible", timeout=15000)
+                cookie_button.click(force=True)
+                print("Cookie wall destroyed. Authorizing payload...")
+                
+                # Give the site time to remove the overlay
+                page.wait_for_timeout(3000)
+            except Exception as e:
+                print("Cookie banner timeout. It may not have loaded or was already cleared.")
 
             # 2. THE SEARCH TRIGGER (ARIA-LOCK)
             print("Engaging Search protocol...")
             try:
-                # Structural lock: Target the primary container, then the specific button with the aria-label
                 search_locator = page.locator(".mc-button.primary-filled button[aria-label='Search']").first
-                
                 search_locator.wait_for(state="visible", timeout=10000)
                 search_locator.click(force=True)
                 print("Search triggered. Waiting 8 seconds for the database grid to populate...")
@@ -57,7 +55,6 @@ def run_sentinel():
             # 3. THE SURGICAL CSV LOCATOR
             print("Hunting for the SVG Icon...")
             csv_locator = page.locator("svg[aria-label='file-csv']").first
-            
             csv_locator.wait_for(state="visible", timeout=30000)
             
             # 4. INTERCEPTING THE DOWNLOAD
