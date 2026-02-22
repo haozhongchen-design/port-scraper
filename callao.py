@@ -3,6 +3,7 @@ from playwright.sync_api import sync_playwright
 import os
 from datetime import datetime
 import pytz
+import re
 
 NYC = pytz.timezone('America/New_York')
 MASTER_FILE = "callao_master_data.csv"
@@ -12,7 +13,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 SEARCH & HIJACK: {ts} ---")
+    print(f"--- M5 SEARCH & HIJACK ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, downloads_path=".")
@@ -41,19 +42,24 @@ def run_sentinel():
             except Exception:
                 print("No cookie banner detected.")
 
-            # 2. THE SEARCH TRIGGER
+            # 2. THE SEARCH TRIGGER (OMNI-LOCATOR)
             print("Engaging Search protocol...")
             try:
-                # Target the standard 'Search' button text
-                search_button = page.locator("button:has-text('Search')").first
-                search_button.wait_for(state="visible", timeout=5000)
-                search_button.click()
-                print("Search triggered. Waiting 8 seconds for the database grid to populate...")
+                # Broad, case-insensitive search for any button containing "search"
+                search_button = page.locator("button, input").filter(has_text=re.compile("search", re.IGNORECASE)).first
                 
-                # We must give the site's background API time to return the vessels
-                page.wait_for_timeout(8000)
+                if not search_button.is_visible(timeout=5000):
+                     # Fallback to look for a generic submit button if the text is hidden in an icon
+                     search_button = page.locator("button[type='submit'], input[type='submit']").first
+
+                if search_button.is_visible(timeout=5000):
+                    search_button.click()
+                    print("Search triggered. Waiting 8 seconds for the database grid to populate...")
+                    page.wait_for_timeout(8000)
+                else:
+                    print("Search button not visible to bot. The HTML might use a custom class.")
             except Exception as e:
-                print("Search button not found by standard text. Proceeding to hunt for SVG anyway...")
+                print("Search sequence failed. Proceeding to hunt for SVG anyway...")
 
             # 3. THE SURGICAL LOCATOR
             print("Hunting for the SVG Icon...")
@@ -93,7 +99,6 @@ def run_sentinel():
 
         except Exception as e:
             print(f"Scrape Failed: {str(e)}")
-            page.screenshot(path="csv_fail_screenshot.png")
             
         finally:
             browser.close()
