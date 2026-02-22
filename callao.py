@@ -3,7 +3,6 @@ from playwright.sync_api import sync_playwright
 import os
 from datetime import datetime
 import pytz
-import re
 
 NYC = pytz.timezone('America/New_York')
 MASTER_FILE = "callao_master_data.csv"
@@ -13,7 +12,7 @@ TARGET_URL = "https://www.apmterminals.com/track-and-trace/vessel-schedule?termi
 def run_sentinel():
     now_nyc = datetime.now(NYC).replace(tzinfo=None)
     ts = now_nyc.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"--- M5 SEARCH & HIJACK ---")
+    print(f"--- M5 SEARCH & HIJACK V3 ---")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, downloads_path=".")
@@ -42,26 +41,20 @@ def run_sentinel():
             except Exception:
                 print("No cookie banner detected.")
 
-            # 2. THE SEARCH TRIGGER (OMNI-LOCATOR)
+            # 2. THE SEARCH TRIGGER (ARIA-LOCK)
             print("Engaging Search protocol...")
             try:
-                # Broad, case-insensitive search for any button containing "search"
-                search_button = page.locator("button, input").filter(has_text=re.compile("search", re.IGNORECASE)).first
+                # Structural lock: Target the primary container, then the specific button with the aria-label
+                search_locator = page.locator(".mc-button.primary-filled button[aria-label='Search']").first
                 
-                if not search_button.is_visible(timeout=5000):
-                     # Fallback to look for a generic submit button if the text is hidden in an icon
-                     search_button = page.locator("button[type='submit'], input[type='submit']").first
-
-                if search_button.is_visible(timeout=5000):
-                    search_button.click()
-                    print("Search triggered. Waiting 8 seconds for the database grid to populate...")
-                    page.wait_for_timeout(8000)
-                else:
-                    print("Search button not visible to bot. The HTML might use a custom class.")
+                search_locator.wait_for(state="visible", timeout=10000)
+                search_locator.click(force=True)
+                print("Search triggered. Waiting 8 seconds for the database grid to populate...")
+                page.wait_for_timeout(8000)
             except Exception as e:
-                print("Search sequence failed. Proceeding to hunt for SVG anyway...")
+                print(f"Search sequence failed: {e}. Proceeding to hunt for SVG anyway...")
 
-            # 3. THE SURGICAL LOCATOR
+            # 3. THE SURGICAL CSV LOCATOR
             print("Hunting for the SVG Icon...")
             csv_locator = page.locator("svg[aria-label='file-csv']").first
             
